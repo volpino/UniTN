@@ -29,7 +29,6 @@ int parse_args(char buffer[], char **args) {
 
 void term_handler() {
     if (child_pid) {
-        printf("figlio!\n");
         kill(child_pid, SIGINT);
         wait(NULL);
     }
