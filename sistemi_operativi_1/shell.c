@@ -56,7 +56,7 @@ int main(int argc, char **argv, char **envp) {
         fgets(buffer, BUFFER, stdin);
         args_c = parse_args(buffer, args);
 
-        if (feof(stdin) || args[0] != NULL && strcmp("exit", args[0]) == 0) {
+        if (feof(stdin) || (args[0] != NULL && strcmp("exit", args[0]) == 0)) {
             break;
         }
 
