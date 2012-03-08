@@ -40,6 +40,6 @@ int main(int argc, char **argv) {
             printf("Io sono %d della generazione %d, figlio di %d\n",
                    getpid(), j, getppid());
         }
-        wait();
+        wait(NULL);
     }
 }
