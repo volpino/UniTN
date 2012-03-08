@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/wait.h>
+
 
 int main(int argc, char **argv) {
     char *f_flag = NULL;
@@ -22,7 +24,7 @@ int main(int argc, char **argv) {
         }
     }
     if (f_flag == NULL || g_flag == NULL) {
-        printf("Error: Wrong parametrs!\n");
+        printf("Error: Wrong parameters!\n");
         exit(1);
     }
     f = atoi(f_flag);
@@ -40,6 +42,6 @@ int main(int argc, char **argv) {
             printf("Io sono %d della generazione %d, figlio di %d\n",
                    getpid(), j, getppid());
         }
-        wait();
+        wait(NULL);
     }
 }
