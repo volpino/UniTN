@@ -6,18 +6,62 @@
 #include <netdb.h>
 #include <string.h>
 #include <signal.h>
+#include <sys/time.h>
+#include <fcntl.h>
 
 #define BUFFER_SIZE 100
 #define LISTENQ (1024)
+#define QUEUE 5
 
 int sock, cli_sock;
+
+int connectlist[QUEUE];  /* Array of connected sockets so we know who
+                        we are talking to */
+fd_set socks;        /* Socket file descriptors we want to wake
+                        up for, using select() */
+int highsock;      /* Highest #'d file descriptor, needed for select() */
 
 void term_handler() {
     printf("Exiting...\n");
     close(cli_sock);
     close(sock);
-    exit(0);
+    exit(EXIT_SUCCESS);
 }
+
+void setnonblocking(int sock)
+{
+    int opts;
+
+    opts = fcntl(sock,F_GETFL);
+    if (opts < 0) {
+        perror("fcntl(F_GETFL)");
+        exit(EXIT_FAILURE);
+    }
+    opts = (opts | O_NONBLOCK);
+    if (fcntl(sock,F_SETFL,opts) < 0) {
+        perror("fcntl(F_SETFL)");
+        exit(EXIT_FAILURE);
+    }
+    return;
+}
+
+void build_select_list() {
+    int i;
+
+    FD_ZERO(&socks);
+
+    FD_SET(sock, &socks);
+
+    for (i=0; i<5; i++) {
+        if (connectlist[i] != 0) {
+            FD_SET(connectlist[i], &socks);
+            if (connectlist[i] > highsock) {
+                highsock = connectlist[i];
+            }
+        }
+    }
+}
+
 
 int main(int argc, char **argv, char **envp) {
     char buffer[BUFFER_SIZE];
@@ -26,6 +70,14 @@ int main(int argc, char **argv, char **envp) {
     int server_port;
     struct sockaddr_in server_address;
     int buf_len;
+
+    int reuse_addr = 1;  /* Used so we can re-bind to our port
+                            while a previous connection is still
+                            in TIME_WAIT state. */
+    struct timeval timeout;  /* Timeout for select */
+    int readsocks;       /* Number of sockets ready for reading */
+
+    int i;
 
     struct sigaction sa;
     sa.sa_handler = &term_handler;
@@ -74,45 +126,96 @@ int main(int argc, char **argv, char **envp) {
 
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) {
-        printf("Error while creating socket\n");
+        perror("socket");
         exit(1);
     }
 
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuse_addr,
+               sizeof(reuse_addr));
+    setnonblocking(sock);
+
+
     if (bind(sock, (struct sockaddr *) &server_address, sizeof(server_address)) < 0) {
-        printf("Error on binding\n");
+        perror("bind");
+        close(sock);
         exit(1);
     }
 
     if (listen(sock, LISTENQ) < 0) {
-        printf("Error on listen\n");
+        perror("listen");
+        close(sock);
         exit(1);
     }
+
+    highsock = sock;
+    bzero(connectlist, QUEUE);
 
     printf("Listening...\n");
 
     while (1) {
-        cli_sock = accept(sock, NULL, NULL);
-        if (cli_sock < 0) {
-            printf("Error on accept\n");
-            exit(1);
+        build_select_list();
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        readsocks = select(highsock+1, &socks, (fd_set *) 0,
+                           (fd_set *) 0, &timeout);
+
+        if (readsocks < 0) {
+            perror("select");
+            exit(EXIT_FAILURE);
         }
 
-        printf("Accepted connection!\n");
+        if (readsocks == 0) {
+            printf(".");
+            fflush(stdout);
+        }
+        else {
+            if (FD_ISSET(sock, &socks)) {
+                printf("\nAccepting...\n");
+                cli_sock = accept(sock, NULL, NULL);
+                if (cli_sock < 0) {
+                    perror("accept");
+                    exit(EXIT_FAILURE);
+                }
 
-        while (1) {
-            bzero(buffer, BUFFER_SIZE);
-            buf_len = read(cli_sock, buffer, BUFFER_SIZE - 1);
-            if (buf_len == 0) {
-                printf("Client disconnected\n");
-                break;
+                setnonblocking(cli_sock);
+
+                for (i=0; (i<5) && (cli_sock != -1); i++) {
+                    if (connectlist[i] == 0) {
+                        printf("\nConnection accepted:   FD=%d; Slot=%d\n",
+                               cli_sock, i);
+                        connectlist[i] = cli_sock;
+                        cli_sock = -1;
+                    }
+                }
+
+                if (cli_sock != -1) {
+                    printf("\nNo room left for new client.\n");
+                    strcpy(buffer, "Sorry, this server is too busy.\n");
+                    write(cli_sock, buffer, strlen(buffer));
+                    close(cli_sock);
+                }
             }
 
-            printf("%i bytes received\n", buf_len);
-            printf("%s\n", buffer);
+            for (i=0; i<5; i++) {
+                if (FD_ISSET(connectlist[i], &socks)) {
+                    bzero(buffer, BUFFER_SIZE);
+                    buf_len = read(connectlist[i], buffer, BUFFER_SIZE - 1);
+                    if (buf_len == 0) {
+                        printf("\nClient disconnected\n");
+                        close(connectlist[i]);
+                        connectlist[i] = 0;
+                    }
+                    else {
+                        printf("\n%i bytes received\n", buf_len);
+                        printf("%s\n", buffer);
 
-            buf_len = write(cli_sock, buffer, strlen(buffer));
+                        buf_len = write(connectlist[i], buffer, strlen(buffer));
+                    }
+                }
+            }
         }
     }
 
-    return 0;
+    return EXIT_SUCCESS;
 }

@@ -69,17 +69,17 @@ int main(int argc, char **argv, char **envp) {
 
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) {
-        printf("Error while creating socket\n");
+        perror("socket");
         exit(1);
     }
 
     if (connect(sock, (struct sockaddr *) &server_address, sizeof(server_address)) < 0) {
-        printf("Connection error :(\n");
+        perror("connect");
         exit(1);
     }
     printf("Connected to the server\n");
 
-    while (1) {
+    do {
         printf(">>> ");
         bzero(buffer, BUFFER_SIZE);
         fgets(buffer, BUFFER_SIZE - 1, stdin);
@@ -106,8 +106,9 @@ int main(int argc, char **argv, char **envp) {
         } while (c < (BUFFER_SIZE - 1) && chr != '\n');
         buffer[c] = '\0';
         printf("%lu bytes received - %s\n", strlen(buffer), buffer);
-    }
+    } while (strlen(buffer) != 0);
 
+    printf("Connection closed from the server\n");
     close(sock);
     return 0;
 }
